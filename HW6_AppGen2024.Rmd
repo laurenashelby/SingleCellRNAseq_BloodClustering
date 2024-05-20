@@ -1,0 +1,145 @@
+---
+title: "Applied Genomics 2024 HW6"
+author: "Lauren Shelby"
+output:
+  html_document:
+    df_print: paged
+---
+
+### Data source 
+
+The data provided from this assignment is from single cell RNA-seq of primary human peripheral blood immune cells from this study ([GSE134757](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE134757)). The original data has 10,000 cells that I have downsampled to 3000 so the data size is more manageable.
+Your task for this assignment is to follow the Seurat workflow to filter the data, normalize, scale, identify clusters, and gene markers that define the cell clusters.
+
+###0.
+Install, if necessary, and load the following packages: Seurat, dplyr, patchwork
+```{r}
+# Loading the Seurat, dplyr, and patchwork packages with library()
+library(Seurat)
+library(dplyr)
+library(patchwork)
+```
+
+## Data loading and object creation
+###1. 
+Load the counts file, use the gene column as row names and show the first 5 row and columns (5 pts)
+```{r}
+# Loading in the counts file, and the gene names go automatically as the row names
+counts <- read.delim("GSE134757_hPB_rawcounts_downsampled.tsv")
+# Displaying the first 5 rows and columns of the counts data frame 
+head(counts, n=c(5,5))
+```
+
+###2. 
+Load the Seurat package; install first if necessary. create a seurat object named phpb (5 pts)
+```{r}
+# Creating a Seurat object (loaded above) named phpb 
+# counts = count matrix in Seurat object 
+# min.cells = keep only genes that have some expression value in at least # number of cells
+# min.features = keep only cells that have expression of at least # number of genes
+# Above specifications are to filter out cells that have expression counts that aren't very impactful 
+phpb <- CreateSeuratObject(counts=counts, min.cells = 3, min.features = 200)
+```
+
+## Quality control and data filtering
+###3.
+Annotate the mitochondrial genes. create a new column in the phpb object named "percent.mt" that hold the % of features that are mitochondrial (5 pts)
+```{r}
+# Creating column in phpb object called 'percent.mt' to hold % of mitochondrial features to see the degree to which these genes are impacting the expression data in the cells 
+phpb[["percent.mt"]] <- PercentageFeatureSet(phpb, pattern = "^MT-")
+```
+
+###4.
+Let's visualize the distribution of some QC metrics. Use VlnPlot to view number of counts, number of features, and the percent mitochondrial genes. (10 pts)
+```{r}
+# Creating a violin plot to visualize the distribution of the features to the percent mitochondrial genes 
+VlnPlot(phpb, 
+        features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3)
+# The vioin plots indicate that the counts and features occurr at higher frequencies around 4000 and 1200 respectively, while the mitochondrial genes make up about 6 percent of the gene expression in the cells. 
+```
+
+###5.
+Let's filter the data to keep cells that have greater than 200 and less than 3000 unique features and the percent mitochondrial genes is less than 7.5. (5 pts)
+```{r}
+# Using the subset function to filter the data in the Seurat object 
+phpb <- subset(phpb, subset = nFeature_RNA > 200 & nFeature_RNA < 3000 & percent.mt < 7.5)
+```
+
+###6.
+Thanks to update to the Seurat workflow, we can now run 3 steps: normalization, scaling and finding variable features with one command "SCTransform". Refer to the seurat ([tutorial](https://satijalab.org/seurat/articles/sctransform_vignette)). Run the SCTransform with the var.to.regress option set to the "percent.mt" (10 pts)
+```{r}
+# Using the SCTransform function to normalize, scale, and find the variable features while regressing out the 'percent.mt' of into a new regression  
+phpb <- SCTransform(phpb, vars.to.regress = "percent.mt", verbose = FALSE)
+```
+
+## Dimension reduction
+###7.
+- Run PCA (5 pts)
+```{r}
+# Running PCA on the object with RunPCA
+phpb <- RunPCA(phpb, verbose = FALSE)
+```
+
+- use DimPlot to visualize the PCs (15 pts)
+- how many cell subtypes are present in this data based on this plot? (5 pts)
+```{r}
+# Using a DimPlot to visualize the principal components 
+DimPlot(object = phpb, reduction = "pca")
+# The cells are colored by their cell subtype, and the one color indicates only one cell type that these cells come from. However, there are clearly 3 different clusters of cells
+```
+
+## Clustering
+###8.
+We will now group the cells together based on their location in the different dimensions
+- run FindNeighbors with the first 10 dimensions (5pts)
+```{r}
+# Running FindNeighbors to group the cells together based on their nearest neighbors in the PCA analysis 
+phpb <- FindNeighbors(object = phpb, dims = 1:10)
+```
+
+- run FindClusters (5 pts)
+```{r}
+# Now using FindClusters to separate the clusters by their nearest neighbor groups 
+phpb <- FindClusters(object = phpb, resolution = 0.5)
+```
+
+###9.
+Now that we have assigned clusters, let's visualize these clusters
+- run UMAP with the first 10 dimensions (10 pts)
+```{r}
+# Running UMAP to find the kNN index from the PCA and cluster analysis 
+phpb <- RunUMAP(object = phpb, dims = 1:10)
+```
+
+- use DimPlot to plot the UMAP with labels (15 pts)
+```{r}
+# Using DimPlot to plot the UMAP clusters made by kNN analysis
+DimPlot(object = phpb, reduction = "umap")
+```
+
+- how many clusters do you get (5pts)
+
+We get 11 total clusters from running UMAP. 
+
+###10. (15 pts)
+We will now visualize the distribution of some gene markers across the clusters
+- use VlnPlot to plot make feature plot for the following features:
+"IL7R","CCR7","CD14","LYZ","MS4A1","CD8A","PPBP","NKG7"
+```{r}
+# Using VlnPlot to visualize canonical markers across the clusters made by UMAP 
+VlnPlot(object = phpb, features = c("IL7R", "CCR7", "CD14", "LYZ", "MS4A1", "CD8A", "PPBP", "NKG7"), pt.size = 0.2, ncol = 4)
+```
+
+###11. (20 pts)
+Use your plot from above and the following info (obtained from the Seurat website) to answer these questions
+IL7R&CCR7 mark native CD4+ T cells
+CD14&LYZ mark 
+MS4A1 marks B cells
+CD8A marks CD8+ T cells
+PPBP marks platelets
+NKG7 marks Natural Killer cells
+
+- does this data contain platelets? No, with the low/non-existent levels of PPBP this data does not contain platelets. 
+- which clusters contain CD8+ T cells? Clusters 5 and 1 contain CD8+ T cells. 
+- which clusters contain CD4+ T cells? Clusters 0, 1, and 6 contain CD4+ T cells. 
+- what cell type does cluster 9 most likely contain? Cluster 9 most likely contains B cells. 
